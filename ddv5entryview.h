@@ -47,13 +47,14 @@ namespace dangdangv5 {
 	class PictureLabel;
 	class ShareManager;
 	class CopyRightView;
+	class AddCommentTask;
+	class CommentRequest;
 	class CommentManager;
 	class AlsoBuyCommand;
 	class BookDetailView;
 	class CommentListView;
 	class ContentListView;
 	class ButtonArrayLabel;
-	class AddCommentWidget; 
 	class CreateBarRequest;
 	class FeedViewDelegate;
 	class CommentEntryView;
@@ -67,7 +68,7 @@ namespace dangdangv5 {
 		EntryView(QWidget *parent = 0);
 		virtual ~EntryView();
 
-		virtual void reload();	
+		virtual void reload();
 		virtual void clear();
 		virtual void update(TSubject *);
 		virtual bool doOperate(QKeyEvent *);
@@ -82,35 +83,33 @@ namespace dangdangv5 {
 
 	private:
 		void reset();
-		void back();
 		void updateCopyRight();	
-		bool isNeedKeepWidget();
 		void raiseWidget(QWidget *);
 		void tipsMessage(const QString &);
 		
 	private slots:
-		void openEntry(const opds::Entry &);
-		void selectTagSlot(const opds::Entry &);
+		void addComment();
+		void openCommentEntry(const opds::Entry &);
+		//void selectTagSlot(const opds::Entry &);
 		void currentSelectedSlot(const QString &);
 		void showDetailContent(const QString &);
+		void entryChanged(const opds::Entry &);
+		void addCommentFinished();
 
 	private:
 		opds::Entry entry;
-		opds::Link barLink;
-		
-		ButtonArrayLabel *arrayLabel;
-		QMap<QString, QWidget *> widgets;
-		QueryBarListRequest *queryBarRequest;
-		CreateBarRequest *createBarRequest;
-		RecommendTagsView *recommendTagsView;
-		CopyRightView *copyRightView;
+		QStackedLayout *stack;
 		SummaryView *summaryView;
-		BookDetailView *bookInfoWidget;
+		CopyRightView *copyRightView;
+		ButtonArrayLabel *arrayLabel;
 		ContentView *contentListView;
 		CommentView *commentListView;
+		BookDetailView *bookInfoWidget;
 		CommentManager *commentManager;
+		AddCommentTask *addCommentTask;
+		QMap<QString, QWidget *> widgets;
 		CommentEntryView *commentEntryView;
-		QStackedLayout *stack;
+		RecommendTagsView *recommendTagsView;
 	};
 	
 	//class BookDetailView
@@ -121,15 +120,18 @@ namespace dangdangv5 {
 		virtual ~BookDetailView();
 		
 		virtual void reset();
+		virtual void clear();
 		virtual bool doOperate(QKeyEvent *);
 		virtual void update(TSubject *);
 		virtual void setEntry(const opds::Entry &);
 		virtual void setDetailEntry(const opds::Entry &);
+		virtual void setAuthorLabelEnabled(bool );
 	
 	signals:
 		void openAuthor(const QString &);
 		void showDetailContent(const QString &);
-		void getDetailEntry(const opds::Entry &); 
+		void entryChanged(const opds::Entry &);
+		void getDetailEntry(const opds::Entry &);
 
 	private slots:
 		void favoriteSlot();
@@ -230,9 +232,12 @@ namespace dangdangv5 {
 		virtual ~CommentView();
 
 		void loadEntry(const opds::Entry &);
+		void loadComment(const opds::Entry &);
+		void showEmpty();
 
 	signals:
-		void openEntry(const opds::Entry &);
+		void addComment();
+		void openCommentEntry(const opds::Entry &);
 	
 	private slots:
 		void dataLoaded();
@@ -244,9 +249,10 @@ namespace dangdangv5 {
 		QStackedWidget *stack;
 		FeedViewDelegate *delegate;
 		dangdang::ContentLabel *commentLabel;
+		dangdangv5::BookCommentCommand *command;
 		dangdangv5::CommentListView *commentListView;
 	};
-
+	
 }
 
 #endif

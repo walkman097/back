@@ -42,20 +42,35 @@ namespace dangdangv5 {
 	}
 
 	//class BookCommentCommand
-	BookCommentCommand::BookCommentCommand(QObject *parent)
+	BookCommentCommand::BookCommentCommand(CommentView *v)
+		:view(v)
 	{
 		opds::BookStoreFactory *factory = opds::BookStoreUtil::getInstance()->factory();
 		request = dynamic_cast<dangdangv5::CommentRequest *>(factory->getCommentManager()->getCommentRequest());
+		connect(request, SIGNAL(finished()), this, SLOT(finishedSlot()));
 	}
 
 	BookCommentCommand::~BookCommentCommand()
 	{
+		delete request;
+		request = NULL;
 	}
 	
 	void BookCommentCommand::execute(const opds::Entry &e)
 	{
+		entry = e;
 		request->setEntry(e);
 		request->execute();
+	}
+	
+	void BookCommentCommand::finishedSlot()
+	{
+		entry.dcIndentifier = QString::number(request->getBarId());
+		if (request->getFeed().entryList.empty()) {
+			view->showEmpty();	
+		} else {
+			view->loadComment(entry);
+		}
 	}
 
 	//class AlsoBuyCommand

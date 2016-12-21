@@ -17,6 +17,7 @@ namespace opds {
 }
 namespace dangdangv5 {
 	class EntryView;
+	class CommentView;
 	class FeedRequest;
 	class CommentRequest;
 	class BookInfoRequest;
@@ -49,11 +50,17 @@ namespace dangdangv5 {
 	class BookCommentCommand : public EntryCommand {
 		Q_OBJECT
 	public:
-		BookCommentCommand(QObject *parent = 0);
+		BookCommentCommand(dangdangv5::CommentView *view);
 		virtual ~BookCommentCommand();
+		
 		virtual void execute(const opds::Entry &);
+	
+	private slots:
+		void finishedSlot();
 
 	private:
+		opds::Entry entry;
+		CommentView *view;
 		CommentRequest *request;
 	};
 

@@ -6,7 +6,6 @@
 #include "ddv5favoriterequest.h"
 #include "ddv5feedviewdelegate.h"
 #include "ddv5stackview.h"
-#include "scrollarea.h"
 #include "opds/imageutil.h"
 #include "opds/constants.h"
 #include "opds/thumbnailview.h"
@@ -71,9 +70,9 @@ namespace dangdangv5 {
 		stack = new QStackedLayout;
 		stack->setSpacing(0);
 		stack->setMargin(0);
-		copyRightView = new CopyRightView;
-		summaryView = new SummaryView;
-		commentEntryView = new CommentEntryView;
+		copyRightView = new CopyRightView(this);
+		summaryView = new SummaryView(this);
+		commentEntryView = new CommentEntryView(this);
 		bookInfoWidget = new BookDetailView(this); 
 		commentListView = new CommentView(this); 
 		contentListView = new ContentView(this);
@@ -98,68 +97,70 @@ namespace dangdangv5 {
 				this, SLOT(showDetailContent(const QString &)));
 		connect(bookInfoWidget, SIGNAL(getDetailEntry(const opds::Entry &)), 
 				this, SLOT(setDetailEntry(const opds::Entry &)));
+		connect(commentListView, SIGNAL(openCommentEntry(const opds::Entry &)), 
+				this, SLOT(openCommentEntry(const opds::Entry &)));
+		connect(commentListView, SIGNAL(addComment()), this, SLOT(addComment()));
 
 		commentManager = CommentManager::getInstance();
 		recommendTagsView = new RecommendTagsView(this);
 		stack->addWidget(recommendTagsView);
 		
-		queryBarRequest = dynamic_cast<QueryBarListRequest *>(commentManager->getQueryBarRequest());
-		createBarRequest = dynamic_cast<CreateBarRequest *>(commentManager->getCreatebarRequest());
-		connect(commentManager, SIGNAL(addCommentFinished()), SLOT(addCommentFinish()));
-		connect(commentManager, SIGNAL(queryArticle()), this, SLOT(commentCommandSlot()));
-		connect(queryBarRequest, SIGNAL(finished()), SLOT(queryBarSlot()));
-		connect(createBarRequest, SIGNAL(finished()), SLOT(createBarSlot()));
-		connect(recommendTagsView, SIGNAL(selected(const opds::Entry &)), SLOT(selectTagSlot(const opds::Entry &)));
+		addCommentTask = new AddCommentTask;
+		connect(addCommentTask, SIGNAL(addCommentFinished()), this, SLOT(addCommentFinished()));
 	}
 
 	EntryView::~EntryView()
 	{
-		delete copyRightView;
-		delete summaryView;
-		delete commentEntryView;
-		delete queryBarRequest;
-		queryBarRequest = NULL;
-		delete createBarRequest;
-		createBarRequest = NULL;
 	}
 
 	void EntryView::reload()
 	{
-		if (entry.isValid()) {
-			if (stack->currentWidget() == commentListView)
-				currentSelectedSlot(tr("Comment"));
-			else
+		qDebug() << "EntryView" << __func__ << "wifi connected and begin relod information !!!";
+		if (entry.isValid() && !entry.id.isEmpty()) {
+			if (stack->currentWidget() == commentListView) {
+				commentListView->loadEntry(entry);
+			} else if (stack->currentWidget() == contentListView) {
+				contentListView->loadEntry(entry);
+			} else {
 				setEntry(entry);
+			}
 		}
 	}
 	
-	bool EntryView::isNeedKeepWidget()
-	{
-		return (stack->currentWidget() == summaryView) || 
-			(stack->currentWidget() == commentEntryView);
-	}
-
 	bool EntryView::doOperate(QKeyEvent *e)
 	{
 		if (e->type() != QEvent::KeyRelease)
 			return false;
 		
-		//TODO
+		if (stack->currentWidget() == summaryView) {
+			raiseWidget(bookInfoWidget);
+			return true;
+		} else if (stack->currentWidget() == commentEntryView) {
+			raiseWidget(commentListView);
+			return true;
+		} else if (stack->currentWidget() == bookInfoWidget) {
+			if (bookInfoWidget->doOperate(e))
+				return true;
+			else 
+				return false;
+		}
+		
 		return false;
 	}
 	
 	void EntryView::clear()
 	{
-		//TODO
+		bookInfoWidget->clear();
 	}
 
 	void EntryView::reset()
 	{
 		arrayLabel->reset();
+		bookInfoWidget->reset();
 		raiseWidget(bookInfoWidget);
 	}
 	
-	void EntryView::update(TSubject *s)
+	void EntryView::update(TSubject *)
 	{
 		//TODO
 	}
@@ -171,6 +172,7 @@ namespace dangdangv5 {
 			return;
 		}
 
+		reset();
 		entry = e;
 		raiseWidget(bookInfoWidget);
 		bookInfoWidget->setEntry(e);
@@ -185,11 +187,17 @@ namespace dangdangv5 {
 
 		entry = e;
 		if (stack->currentWidget() == copyRightView) {
-			copyRightView->loadEntry(entry);
+			updateCopyRight();	
 		}
-
 	}
 	
+	void EntryView::entryChanged(const opds::Entry &e)
+	{
+		qDebug() << "EntryView" << __func__ << "handler entry changed !!!!";
+		entry = e;
+		arrayLabel->reset();
+	}
+
 	bool EntryView::checkLogin()
 	{
 		opds::LoginManager *loginManager = 
@@ -213,119 +221,6 @@ namespace dangdangv5 {
 		copyRightView->loadEntry(entry);
 	}
 	
-#if 0
-	void EntryView::addCommentSlot()
-	{
-		if (!checkLogin()) {
-			return;
-		}
-		
-		if (view == NULL)
-			view = new AddCommentWidget(this);
-		
-		if(view->inputContent()) {
-			if (view->getContent().trimmed().isEmpty()) {
-				eink::EinkMessageBox::timeoutInformation(NULL, tr("Add Comment fail"),
-					tr("Comment content should not be empty!"), 3,eink::EinkMessageBox::NONE);
-				return;
-			}
-			opds::Link link;
-			link.userData["content"] = view->getContent();
-			link.userData["title"] = "";
-			link.userData["barId"] = QString::number(manager->getBarId());
-			manager->addComment(link);
-		}
-	}
-	
-	void EntryView::addCommentFinish()
-	{
-		lstView->loadEntry(entry);
-		showComment(false);
-	}
-
-	void EntryView::commentCommandSlot()
-	{
-		if (!this->isVisible())
-			return;
-		if (manager->getBarId() == -1) {
-			checkLogin();
-			queryBar();
-			return;
-		}
-		
-		lstView->loadEntry(entry);
-		raiseWidget(commentListView);
-	}
-	
-	void EntryView::queryBar()
-	{
-		QList<zlsim::InputItem> items;
-		items.append(zlsim::InputItem(0, tr("Bar name"), entry.title));
-		items = zlsim::TextInputDialog::getMultiLineText(
-				items, this, tr("Create bar"));
-		if (!items.isEmpty()) {
-			QString barName = items[0].value;
-			if (barName.isEmpty()) {
-				tipsMessage(tr("Bar name cann't be empty !"));
-			} else {
-				barLink.userData["barName"] = barName;
-				queryBarRequest->setBarName(barName);
-				queryBarRequest->execute();
-			}
-		}
-	}
-	
-	void EntryView::queryBarSlot()
-	{
-		if (queryBarRequest->isExist()) {
-			tipsMessage(tr("Bar name has exist,please use other !"));
-		} else {
-			addBarDesc();		
-		}
-	}
-
-	void EntryView::addBarDesc()
-	{
-		QList<zlsim::InputItem> items;
-		items.append(zlsim::InputItem(0, tr("Desc"), QString::null));
-		items = zlsim::TextInputDialog::getMultiLineText(
-				items, this, tr("Bar desc"));
-		if (!items.isEmpty()) {
-			QString barDesc = items[0].value;
-			if (barDesc.isEmpty()) {
-				tipsMessage(tr("Bar desc cann't be empyt !"));
-			} else {
-				barLink.userData["barDesc"] = barDesc;
-				raiseWidget(recommendTagsView);
-			}
-		}
-	}
-
-	void EntryView::selectTagSlot(const opds::Entry &e)
-	{
-		barLink.userData["objectId"] = entry.id;
-		barLink.userData["tags"] = e.title;
-		barLink.userData["actionType"] = e.rights;
-		opds::Link priceLink = entry.getLink(opds::ACQ_BUY);
-		if (!priceLink.isNull())
-			barLink.userData["bookType"] = priceLink.userData.value("mediaType");
-		opds::OPDSUtil::printLink(barLink);
-		createBarRequest->setLink(barLink);
-		createBarRequest->execute();
-	}
-
-	void EntryView::createBarSlot()
-	{
-		if (createBarRequest->getStatusCode() == netview::Parser::SUCCESS) {
-			lstView->loadEntry(entry);
-			raiseWidget(commentListView);
-		} else {
-			tipsMessage(createBarRequest->getErrorString());	
-		}
-	}
-
-#endif
-
 	void EntryView::tipsMessage(const QString &message) 
 	{
 		eink::EinkMessageBox::timeoutInformation(
@@ -338,27 +233,6 @@ namespace dangdangv5 {
 
 	void EntryView::currentSelectedSlot(const QString &selected)
 	{
-	#if 0
-		if (tr("BookInfo") == selected) {
-			if (stack->currentWidget() == bookInfoWidget) 
-				return;
-			raiseWidget(bookInfoWidget);
-		} else if (tr("CopyRight") == selected) {
-			if (stack->currentWidget() == copyRightView)
-				return;
-			copyRightView->loadEntry(entry);
-			raiseWidget(copyRightView);
-		} else if (tr("Content") == selected) {
-			if (stack->currentWidget() == contentListView)	
-				return;
-			contentListView->loadEntry(entry);
-			raiseWidget(contentListView);
-		} else if (tr("Comment") == selected) {
-			if (stack->currentWidget() == commentListView)
-				return;
-			//TODO
-		}
-	#endif
 		raiseWidget(widgets[selected]);
 		if (stack->currentWidget() == copyRightView) {
 			copyRightView->loadEntry(entry);
@@ -374,27 +248,33 @@ namespace dangdangv5 {
 		stack->setCurrentWidget(widget);
 	}
 
-	void EntryView::back()
-	{
-		if (stack->currentWidget() == summaryView) {
-			raiseWidget(bookInfoWidget);
-		} else if (stack->currentWidget() == commentEntryView) {
-			raiseWidget(commentListView);
-		} else {
-			//TODO
-		}
-	}
-
-	void EntryView::openEntry(const opds::Entry &entry)
+	void EntryView::openCommentEntry(const opds::Entry &entry)
 	{
 		qDebug() << "EntryView" << __func__ << "commentListView openEntry";
 		commentEntryView->setEntry(entry);
 		raiseWidget(commentEntryView);
 	}
+	
+	void EntryView::addComment()
+	{
+		if (!checkLogin()) {
+			return;
+		}
+		
+		//TODO
+		addCommentTask->addComment();
+	}
+	
+	void EntryView::addCommentFinished()
+	{
+		qDebug() << "EntryView" << __func__ << "add Comment success finished !!!!!";
+		commentListView->loadEntry(entry);
+		raiseWidget(commentListView);
+	}
 
 	void EntryView::setAuthorLabelEnabled(bool b)
 	{
-		//TODO	
+		bookInfoWidget->setAuthorLabelEnabled(b);
 	}
 
 	void EntryView::setHasBackKey(bool b)
@@ -402,66 +282,12 @@ namespace dangdangv5 {
 		arrayLabel->setHasBackKey(b);
 	}
 	
-	void EntryView::showDetailContent(const QString &)
+	void EntryView::showDetailContent(const QString &content)
 	{
+		summaryView->loadContent(content);
+		raiseWidget(summaryView);
 	}
 
-	//class ContentView
-	ContentView::ContentView(QWidget *parent)
-		:QWidget(parent)
-	{
-		delegate = NULL;
-		QVBoxLayout *layout = new QVBoxLayout(this);
-		chapterLabel = new dangdang::ContentLabel(dangdang::BOLD_NORMAL, this);
-		chapterLabel->setText(tr("Sorry, Chapter is Empty!"));
-		contentListView = new ContentListView(opds::BookStoreUtil::getInstance()->getNetworkMgr());
-		initFeedView(contentListView);
-
-		stack = new QStackedWidget(this);
-		stack->addWidget(chapterLabel);
-		stack->addWidget(contentListView);
-		stack->setCurrentWidget(contentListView);
-		layout->addWidget(stack);
-	}
-
-	ContentView::~ContentView()
-	{
-		if (delegate != NULL) {
-			delete delegate;
-			delegate = NULL;
-		}
-	}
-
-	void ContentView::loadEntry(const opds::Entry &entry)
-	{
-		qDebug() << "ContentView" << __func__ << "begin load chapterList !!!!!";
-		stack->setCurrentWidget(contentListView);
-		contentListView->loadEntry(entry);
-	}
-
-	void ContentView::dataLoaded()
-	{
-		qDebug() << "ContentView" << __func__ << "load chapterList finished !!!!!";
-		if (contentListView->isEmpty()) {
-			stack->setCurrentWidget(chapterLabel);
-		}
-	}
-	
-	void ContentView::initFeedView(opds::FeedView *view, bool setDelegate)
-	{
-		connect(view, SIGNAL(dataLoaded()), this, SLOT(dataLoaded()));
-		view->setItemHeight(opds::BookStoreUtil::getInstance()->getBookPixmap()->height());
-		view->setShowInfo(false);
-		view->setHasPageMgr(false);
-		view->setInfoLabelVisible(false);
-		if (delegate == NULL)
-			delegate = new FeedViewDelegate(this);
-		if (setDelegate)
-			view->setDelegate(delegate);
-		view->setLayoutSpacing(1);
-		view->setLayoutMargin(1);
-	}
-	
 	//class BookDetailView
 	BookDetailView::BookDetailView(QWidget *parent)
 		:QWidget(parent)
@@ -657,6 +483,12 @@ namespace dangdangv5 {
 		butWidget->reset();
 	}
 	
+	void BookDetailView::clear()
+	{
+		entry.clear();
+		historyEntry.clear();
+	}
+
 	bool BookDetailView::doOperate(QKeyEvent *e)
 	{
 		if (e->type() != QEvent::KeyRelease)
@@ -754,6 +586,11 @@ namespace dangdangv5 {
 		}
 	}
 
+	void BookDetailView::setAuthorLabelEnabled(bool b)
+	{
+		authorLabel->setEnabled(b);
+	}
+	
 	void BookDetailView::setEntry(const opds::Entry &e)
 	{
 		if (!e.isValid() || e.id.isEmpty()) {
@@ -777,6 +614,8 @@ namespace dangdangv5 {
 			}
 		}
 		
+		if (entry.id != e.id)
+			emit entryChanged(e);
 		reset();
 		entry = e;
 		titleLabel->setText(entry.title);
@@ -834,7 +673,6 @@ namespace dangdangv5 {
 		honorLabel->setHonor(dangdang::Util::getHonor(entry));
 		if (authorLabel->text().isEmpty())
 			drawAuthor();
-		//TODO notify detail inforamtion
 		if (isOriginBook()) {
 			cartLabel->setEnabled(false);
 		} else {
@@ -957,7 +795,6 @@ namespace dangdangv5 {
 		requestList.append(new dangdangv5::BookInfoCommand(this));
 		alsoBuyCommand = new dangdangv5::AlsoBuyCommand(alsoBuyView);
 		requestList.append(alsoBuyCommand);
-		requestList.append(new dangdangv5::BookCommentCommand);
 	}
 	
 	void BookDetailView::back()
@@ -1207,6 +1044,63 @@ namespace dangdangv5 {
 		}
 		return false;
 	}
+	
+	//class ContentView
+	ContentView::ContentView(QWidget *parent)
+		:QWidget(parent)
+	{
+		delegate = NULL;
+		QVBoxLayout *layout = new QVBoxLayout(this);
+		chapterLabel = new dangdang::ContentLabel(dangdang::BOLD_NORMAL, this);
+		chapterLabel->setText(tr("Sorry, Chapter is Empty!"));
+		chapterLabel->setAlignment(Qt::AlignCenter);
+		contentListView = new ContentListView(opds::BookStoreUtil::getInstance()->getNetworkMgr());
+		initFeedView(contentListView);
+
+		stack = new QStackedWidget(this);
+		stack->addWidget(chapterLabel);
+		stack->addWidget(contentListView);
+		stack->setCurrentWidget(contentListView);
+		layout->addWidget(stack);
+	}
+
+	ContentView::~ContentView()
+	{
+		if (delegate != NULL) {
+			delete delegate;
+			delegate = NULL;
+		}
+	}
+
+	void ContentView::loadEntry(const opds::Entry &entry)
+	{
+		qDebug() << "ContentView" << __func__ << "begin load chapterList !!!!!";
+		stack->setCurrentWidget(contentListView);
+		contentListView->loadEntry(entry);
+	}
+
+	void ContentView::dataLoaded()
+	{
+		qDebug() << "ContentView" << __func__ << "load chapterList finished !!!!!";
+		if (contentListView->isEmpty()) {
+			stack->setCurrentWidget(chapterLabel);
+		}
+	}
+	
+	void ContentView::initFeedView(opds::FeedView *view, bool setDelegate)
+	{
+		connect(view, SIGNAL(dataLoaded()), this, SLOT(dataLoaded()));
+		view->setItemHeight(opds::BookStoreUtil::getInstance()->getBookPixmap()->height());
+		view->setShowInfo(false);
+		view->setHasPageMgr(false);
+		view->setInfoLabelVisible(false);
+		if (delegate == NULL)
+			delegate = new FeedViewDelegate(this);
+		if (setDelegate)
+			view->setDelegate(delegate);
+		view->setLayoutSpacing(1);
+		view->setLayoutMargin(1);
+	}
 
 	//class CommentView
 	CommentView::CommentView(QWidget *parent)
@@ -1222,24 +1116,30 @@ namespace dangdangv5 {
 		userLabel->setText(tr("User comments"));
 		dangdang::ClickLabel *addCommentLabel = new dangdang::ClickLabel(dangdang::BOLD_NORMAL);
 		addCommentLabel->setText(tr("Add Comment"));
-		//connect(addCommentLabel, SIGNAL(clicked()), SLOT(addCommentSlot()));
+		connect(addCommentLabel, SIGNAL(clicked()), this, SIGNAL(addComment()));
 		
 		QHBoxLayout *labLayout = new QHBoxLayout;
 		labLayout->setMargin(0);
 		labLayout->setSpacing(0);
 		labLayout->addItem(new QSpacerItem(margin*3, margin, QSizePolicy::Preferred, QSizePolicy::Preferred));
 		labLayout->addWidget(userLabel);
+		labLayout->addItem(new QSpacerItem(margin, margin, QSizePolicy::Expanding, QSizePolicy::Preferred));
 		labLayout->addWidget(addCommentLabel);
+		labLayout->addItem(new QSpacerItem(margin*3, margin, QSizePolicy::Preferred, QSizePolicy::Preferred));
 
 		commentLabel = new dangdang::ContentLabel(dangdang::BOLD_NORMAL, this);
 		commentLabel->setText(tr("Sorry, Comment is Empty!"));
-		commentListView = new CommentListView(opds::BookStoreUtil::getInstance()->getNetworkMgr());			
+		commentLabel->setAlignment(Qt::AlignCenter);
+		commentListView = new CommentListView(opds::BookStoreUtil::getInstance()->getNetworkMgr());
+		initFeedView(commentListView);
+
 		stack = new QStackedWidget;
 		stack->addWidget(commentLabel);
 		stack->addWidget(commentListView);
 		stack->setCurrentWidget(commentListView);
 		layout->addLayout(labLayout);
 		layout->addWidget(stack);
+		command = new BookCommentCommand(this);
 	}
 
 	CommentView::~CommentView()
@@ -1252,23 +1152,34 @@ namespace dangdangv5 {
 
 	void CommentView::loadEntry(const opds::Entry &entry)
 	{
-		qDebug() << "ContentView" << __func__ << "begin load commetList !!!!!";
+		qDebug() << "CommentView" << __func__ << "begin load commetList !!!!!";
+		stack->setCurrentWidget(commentListView);
+		command->execute(entry);
+	}
+	
+	void CommentView::loadComment(const opds::Entry &entry)
+	{
 		stack->setCurrentWidget(commentListView);
 		commentListView->loadEntry(entry);
 	}
 
+	void CommentView::showEmpty()
+	{
+		stack->setCurrentWidget(commentLabel);
+	}
+
 	void CommentView::dataLoaded()
 	{
-		qDebug() << "ContentView" << __func__ << "load commentList finished !!!!!";
+		qDebug() << "CommentView" << __func__ << "load commentList finished !!!!!";
 		if (commentListView->isEmpty()) {
 			stack->setCurrentWidget(commentLabel);
 		}
 	}
-
+	
 	void CommentView::initFeedView(opds::FeedView *view, bool setDelegate)
 	{
 		connect(view, SIGNAL(openEntry(const opds::Entry &)),
-			this, SIGNAL(openEntry(const opds::Entry &)));
+			this, SIGNAL(openCommentEntry(const opds::Entry &)));
 		connect(view, SIGNAL(dataLoaded()), this, SLOT(dataLoaded()));
 		
 		view->setItemHeight(opds::BookStoreUtil::getInstance()->getBookPixmap()->height());
